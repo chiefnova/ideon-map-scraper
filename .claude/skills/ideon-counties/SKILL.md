@@ -25,13 +25,14 @@ https://ideonapi.com/wp-content/uploads/json-data/county_lowest_premiums_all_14-
    source venv/bin/activate
    ```
 
-2. **Run the export script** with desired filters:
+2. **Run the export script** with date-stamped filename:
    ```bash
    # All 2026 data (all metals, all ages) - 18,858 rows
-   python scripts/export_county_data.py --year 2026 -o data/ideon_counties_2026.csv
+   # Creates file like: ideon_counties_2026_2026-01-16.csv
+   python scripts/export_county_data.py --year 2026 -o data/ideon_counties_2026_$(date +%Y-%m-%d).csv
 
    # Filtered: just Gold tier, Age 50
-   python scripts/export_county_data.py --year 2026 --age 50 --metal gold -o data/ideon_counties_2026_gold_50.csv
+   python scripts/export_county_data.py --year 2026 --age 50 --metal gold -o data/ideon_counties_2026_gold_50_$(date +%Y-%m-%d).csv
    ```
 
 3. **Report the results** to the user:

@@ -31,9 +31,10 @@ https://ideonapi.com/wp-content/uploads/json-data/county_lowest_premiums_all_14-
    python scripts/export_county_data.py --year 2026 -o /dev/null
    ```
 
-3. **Run the state export script**:
+3. **Run the state export script** with date-stamped filename:
    ```bash
-   python scripts/export_state_data.py --year 2026 -o data/ideon_states_2026.csv
+   # Creates file like: ideon_states_2026_2026-01-16.csv
+   python scripts/export_state_data.py --year 2026 -o data/ideon_states_2026_$(date +%Y-%m-%d).csv
    ```
 
 4. **Report the results** to the user:

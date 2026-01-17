@@ -17,16 +17,18 @@ Business team can use these commands directly in Claude Code:
 
 | Command | What it does |
 |---------|--------------|
-| `/ideon-counties` | Export all county-level premium data to CSV |
-| `/ideon-states` | Export state-level aggregated data to CSV |
+| `/ideon-counties` | Export all county-level premium data to CSV (date-stamped) |
+| `/ideon-states` | Export state-level aggregated data to CSV (date-stamped) |
 | `/ideon-verify` | Verify CSV data against live website |
 | `/ideon-refresh` | Re-download fresh data and regenerate all CSVs |
+
+**Note**: All exports now create date-stamped files (e.g., `ideon_counties_2026_2026-01-16.csv`) to preserve historical data.
 
 ### Example Usage
 
 ```
 You: /ideon-counties
-Claude: [Runs export, creates CSV at ~/Downloads/ideon_counties_2026.csv]
+Claude: [Runs export, creates CSV at data/ideon_counties_2026_2026-01-16.csv]
 
 You: /ideon-verify
 Claude: [Checks data against live site, reports pass/fail]
@@ -70,11 +72,11 @@ If not using slash commands, run directly:
 cd /Users/gabrielviggers/Downloads/ideon-scraper-repo
 source venv/bin/activate
 
-# Export county data
-python scripts/export_county_data.py --year 2026 -o data/ideon_counties_2026.csv
+# Export county data (date-stamped)
+python scripts/export_county_data.py --year 2026 -o data/ideon_counties_2026_$(date +%Y-%m-%d).csv
 
-# Export state data
-python scripts/export_state_data.py --year 2026 -o data/ideon_states_2026.csv
+# Export state data (date-stamped)
+python scripts/export_state_data.py --year 2026 -o data/ideon_states_2026_$(date +%Y-%m-%d).csv
 
 # Verify against live site
 python scripts/auto_verify.py
@@ -123,9 +125,13 @@ Same columns but with `_avg` suffix for averaged values, plus `county_count`.
 
 ## GitHub Repository
 
-CSVs are committed to the repo for easy download:
-- https://github.com/chiefnova/ideon-map-scraper/raw/main/data/ideon_counties_2026.csv
-- https://github.com/chiefnova/ideon-map-scraper/raw/main/data/ideon_states_2026.csv
+CSVs are committed to the repo for easy download. Files are date-stamped to preserve historical data:
+- County data: `data/ideon_counties_2026_YYYY-MM-DD.csv`
+- State data: `data/ideon_states_2026_YYYY-MM-DD.csv`
+
+Example:
+- https://github.com/chiefnova/ideon-map-scraper/raw/main/data/ideon_counties_2026_2026-01-16.csv
+- https://github.com/chiefnova/ideon-map-scraper/raw/main/data/ideon_states_2026_2026-01-16.csv
 
 ## Dependencies
 
