@@ -9,10 +9,14 @@ venv/
 env/
 .env
 
-# Output files
-*.csv
+# Output files (keep final CSVs, ignore temp files)
 captured_data.json
+county_data_raw.json
 debug.png
+verification_screenshot.png
+page_source.html
+largest_script.txt
+captured_*.json
 
 # IDE
 .vscode/
