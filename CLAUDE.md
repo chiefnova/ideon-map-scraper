@@ -2,125 +2,143 @@
 
 ## Project Overview
 
-This project scrapes county-level health insurance premium data from Ideon's interactive ICHRA map at https://ideonapi.com/ideon-ichra-insights-by-state/
+This project extracts county-level health insurance premium data from Ideon's interactive ICHRA map at https://ideonapi.com/ideon-ichra-insights-by-state/
 
-**Goal**: Extract Individual vs Small Group ACA plan pricing for all ~3,100 US counties into structured CSV format.
+**Data source discovered**: Direct JSON endpoint (no scraping needed!)
+```
+https://ideonapi.com/wp-content/uploads/json-data/county_lowest_premiums_all_14-12-2025.json
+```
 
-**Data available on the map** (per county):
-- County name, State
-- Individual premium (monthly, for age 27 or 50)
-- Small Group premium
-- Price difference (Individual - Small Group)
+**Coverage**: ~3,143 US counties, years 2017-2026, ages 27/50, metal tiers Bronze/Silver/Gold
 
-**Map filters**: Year (2017-2026), Age (27/50), Metal tier (Bronze/Silver/Gold)
+## Quick Start - Slash Commands
 
-**Target output columns**: `county, state, individual_premium, small_group_premium, difference, year, age, metal`
+Business team can use these commands directly in Claude Code:
+
+| Command | What it does |
+|---------|--------------|
+| `/ideon-counties` | Export all county-level premium data to CSV |
+| `/ideon-states` | Export state-level aggregated data to CSV |
+| `/ideon-verify` | Verify CSV data against live website |
+| `/ideon-refresh` | Re-download fresh data and regenerate all CSVs |
+
+### Example Usage
+
+```
+You: /ideon-counties
+Claude: [Runs export, creates CSV at ~/Downloads/ideon_counties_2026.csv]
+
+You: /ideon-verify
+Claude: [Checks data against live site, reports pass/fail]
+```
 
 ## File Structure
 
 ```
 ideon-scraper-repo/
+├── .claude/
+│   ├── commands/           # Slash commands for business team
+│   │   ├── ideon-counties.md
+│   │   ├── ideon-states.md
+│   │   ├── ideon-verify.md
+│   │   └── ideon-refresh.md
+│   └── skills/             # Auto-triggered skills
+│       ├── ideon-counties/
+│       ├── ideon-states/
+│       └── ideon-verify/
+├── data/                   # Output CSVs (committed to repo)
+│   ├── ideon_counties_2026.csv
+│   └── ideon_states_2026.csv
 ├── scripts/
-│   ├── inspect_network.py    # Network inspector - finds data source
-│   └── scrape_ideon_map.py   # Main scraper - hover-based extraction
+│   ├── export_county_data.py   # Main county export script
+│   ├── export_state_data.py    # State aggregation script
+│   ├── auto_verify.py          # Automated verification
+│   ├── find_data_source.py     # Data source discovery
+│   ├── inspect_network.py      # Network inspector
+│   └── scrape_ideon_map.py     # Fallback hover scraper
 ├── references/
-│   └── selectors.md          # CSS selector troubleshooting guide
-├── requirements.txt          # playwright, pandas
-├── README.md                 # User documentation
-└── CLAUDE.md                 # This file
+│   └── selectors.md
+├── requirements.txt
+└── CLAUDE.md
 ```
 
-## How to Run
+## Manual Usage
+
+If not using slash commands, run directly:
 
 ```bash
-# Install dependencies
-pip install playwright pandas
-playwright install chromium
+cd /Users/gabrielviggers/Downloads/ideon-scraper-repo
+source venv/bin/activate
 
-# Step 1: Run network inspector first (find if there's a JSON endpoint)
-python scripts/inspect_network.py
+# Export county data
+python scripts/export_county_data.py --year 2026 -o data/ideon_counties_2026.csv
 
-# Step 2: If no API found, run the hover scraper
-python scripts/scrape_ideon_map.py --year 2026 --age 50 --metal gold --output data.csv
+# Export state data
+python scripts/export_state_data.py --year 2026 -o data/ideon_states_2026.csv
 
-# Debug mode (visible browser, single state)
-python scripts/scrape_ideon_map.py --state CA --debug
+# Verify against live site
+python scripts/auto_verify.py
 ```
 
-## Architecture & Approach
+### Filtering Options
 
-### Two-Phase Strategy
+```bash
+# All 2026 data (18,858 rows)
+python scripts/export_county_data.py --year 2026
 
-1. **Phase 1: Network Inspection** (`inspect_network.py`)
-   - Opens browser, captures all network requests
-   - Looks for `.json`, `.geojson`, `api`, `data` URLs
-   - Saves any large JSON responses to `captured_data.json`
-   - **Preferred if found**: Direct API fetch is faster and more reliable than scraping
+# Just Gold tier, Age 50 (3,143 rows)
+python scripts/export_county_data.py --year 2026 --age 50 --metal gold
 
-2. **Phase 2: Hover Scraping** (`scrape_ideon_map.py`)
-   - Falls back to this if no direct data source exists
-   - Detects map type (SVG vs Canvas/Mapbox GL)
-   - **SVG maps**: Hover over each `<path>` element
-   - **Canvas maps**: Grid-scan the canvas at 8px intervals
-   - Parses tooltip text with regex, dedupes by county+state
-
-### Key Functions in `scrape_ideon_map.py`
-
-| Function | Purpose |
-|----------|---------|
-| `parse_tooltip()` | Regex extraction from tooltip text |
-| `set_map_filters()` | Sets year/age/metal dropdowns |
-| `scrape_svg_map()` | Hovers over SVG `<path>` elements |
-| `scrape_canvas_map()` | Grid-scans Mapbox canvas |
-| `get_tooltip_text()` | Finds visible tooltip element |
-
-### Tooltip Pattern
-
-The scraper expects tooltip text like:
-```
-Shasta County, CA
-Diff (Ind - Small): $605.64
-Individual: $1,414.50  Small Group: $808.86
+# Different year
+python scripts/export_county_data.py --year 2025
 ```
 
-## Current Status
+## CSV Output Format
 
-- [x] Network inspector script complete
-- [x] Hover-based scraper with SVG/Canvas support
-- [x] Tooltip regex parsing
-- [x] CSV output with sorting
-- [ ] **NOT YET TESTED** - Need to run inspector to find data source
-- [ ] May need selector updates if map structure differs from expected
+### Counties CSV (ideon_counties_2026.csv)
 
-## Next Steps
+| Column | Description |
+|--------|-------------|
+| fips | 5-digit FIPS county code |
+| county | County name |
+| state_abbr | State abbreviation (TX, CA, etc.) |
+| state_name | Full state name |
+| individual_premium | Monthly individual ACA premium |
+| small_group_premium | Monthly small group premium |
+| difference | Individual minus Small Group |
+| year | Plan year (2017-2026) |
+| age | Age for premium (27 or 50) |
+| metal_tier | Bronze, Silver, or Gold |
 
-1. **Run the inspector**: `python scripts/inspect_network.py`
-   - Look for JSON endpoints in the output
-   - Check `captured_data.json` if created
+### States CSV (ideon_states_2026.csv)
 
-2. **If JSON/API found**:
-   - Create a simpler `fetch_data.py` that hits the endpoint directly
-   - Much faster and more reliable than hover scraping
+Same columns but with `_avg` suffix for averaged values, plus `county_count`.
 
-3. **If no API (must scrape)**:
-   - Test scraper on single state: `python scripts/scrape_ideon_map.py --state TX --debug`
-   - Watch for tooltip detection issues
-   - Update selectors in `get_tooltip_text()` if needed
+## Data Notes
 
-4. **Selector troubleshooting**: See [references/selectors.md](references/selectors.md) for common map library selectors
+- **Alaska**: No individual market data (values are null)
+- **Negative difference**: Small Group is cheaper than Individual
+- **Data freshness**: JSON endpoint is updated periodically by Ideon
+- **Verification**: Use `/ideon-verify` to confirm data matches live site
 
-## Common Issues
+## GitHub Repository
 
-| Issue | Solution |
-|-------|----------|
-| Tooltip not detected | Add new selector to `get_tooltip_text()` |
-| Map doesn't load | Increase timeout in `page.goto()` |
-| Filters don't work | Inspect dropdown elements, update `set_map_filters()` |
-| Slow scraping | Decrease grid step in canvas mode (but takes longer) |
-| Missing counties | Decrease `step_x`/`step_y` in `scrape_canvas_map()` |
+CSVs are committed to the repo for easy download:
+- https://github.com/chiefnova/ideon-map-scraper/raw/main/data/ideon_counties_2026.csv
+- https://github.com/chiefnova/ideon-map-scraper/raw/main/data/ideon_states_2026.csv
 
 ## Dependencies
 
-- `playwright` - Browser automation
-- `pandas` - Data processing (optional, for analysis)
-- Chromium browser (installed via `playwright install chromium`)
+```bash
+pip install playwright pandas
+playwright install chromium
+```
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `venv not found` | Run `python3 -m venv venv` first |
+| `playwright not installed` | Run `pip install playwright && playwright install chromium` |
+| Data seems outdated | Run `/ideon-refresh` to re-download |
+| Verification fails | Ideon may have updated data - run `/ideon-refresh` |
