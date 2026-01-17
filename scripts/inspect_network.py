@@ -125,7 +125,8 @@ async def inspect():
             if src:
                 print(f"  {src[:80]}...")
         
-        input("\nPress Enter to close browser...")
+        # Auto-close after inspection (removed input() for automation)
+        print("\nClosing browser...")
         await browser.close()
     
     return data_urls, json_responses

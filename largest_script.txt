@@ -1,0 +1,278 @@
+
+    let ROWS = [];
+
+    const FIPS_TO_USPS = {
+      "01":"AL","02":"AK","04":"AZ","05":"AR","06":"CA","08":"CO","09":"CT","10":"DE","11":"DC","12":"FL","13":"GA","15":"HI","16":"ID","17":"IL",
+      "18":"IN","19":"IA","20":"KS","21":"KY","22":"LA","23":"ME","24":"MD","25":"MA","26":"MI","27":"MN","28":"MS","29":"MO","30":"MT","31":"NE",
+      "32":"NV","33":"NH","34":"NJ","35":"NM","36":"NY","37":"NC","38":"ND","39":"OH","40":"OK","41":"OR","42":"PA","44":"RI","45":"SC","46":"SD",
+      "47":"TN","48":"TX","49":"UT","50":"VT","51":"VA","53":"WA","54":"WV","55":"WI","56":"WY","72":"PR"
+    };
+
+    const selYear = document.getElementById('ichra-year');
+    const selAge = document.getElementById('ichra-age');
+    const selMetal = document.getElementById('ichra-metal');
+    const selGeo = document.getElementById('ichra-geo');
+    const mapDiv = document.getElementById('ichra-map');
+    const legendDiv = document.getElementById('ichra-legend');
+    const tip = document.getElementById('ichra-tip');
+
+    function fmtDollars(v){ return '$' + d3.format(',.2f')(v); }
+
+    const DARK_GREEN=d3.rgb('#059669'), LIGHT_GREEN=d3.rgb('#9BF2C6'), GRAY=d3.rgb('#CFCFCF'), LIGHT_PURPLE=d3.rgb('#D0B6FF'), DARK_PURPLE=d3.rgb('#E933F7');
+    function rampHCL(t){
+      if(t<=0.25) return d3.interpolateHcl(DARK_GREEN, LIGHT_GREEN)(t/0.25);
+      if(t<=0.50) return d3.interpolateHcl(LIGHT_GREEN, GRAY)((t-0.25)/0.25);
+      if(t<=0.75) return d3.interpolateHcl(GRAY, LIGHT_PURPLE)((t-0.50)/0.25);
+      return d3.interpolateHcl(LIGHT_PURPLE, DARK_PURPLE)((t-0.75)/0.25);
+    }
+
+    function divergeT(value, cap, gamma=0.65){
+      const t=(value+cap)/(2*cap);
+      const s=Math.sign(t-0.5);
+      const m=Math.abs(t-0.5)*2;
+      const m2=Math.pow(m,gamma);
+      return 0.5 + s*(m2/2);
+    }
+
+    const colorWithCap = (cap) => (v) => rampHCL(divergeT(v, cap, 0.65));
+
+    function percentileCap(values, p=0.95){
+      if(!values.length) return 50;
+      const a=values.slice().map(Math.abs).sort((x,y)=>x-y);
+      const idx=Math.floor(p*(a.length-1));
+      const raw=a[idx];
+      const cap=Math.max(50, Math.min(500, Math.ceil(raw/25)*25));
+      //return cap||50;
+      return 250;
+    }
+
+    function aggregateStates(level, age, year){
+      const byState=d3.rollup(
+        ROWS.filter(r=>r.lvl===level && r.age===age && r.year===year),
+        v=>d3.mean(v, d=>d.d),
+        d=>d.st
+      );
+      return Array.from(byState, ([st,d])=>({st,d}));
+    }
+
+    function drawLegendExternal(width, CAP, color){
+      legendDiv.innerHTML='';
+      const legendWidth=Math.min(540, Math.round(width*0.72));
+      const legendHeight=14;
+
+      const svg=d3.select(legendDiv).append('svg')
+        .attr('width', legendWidth)
+        .attr('height', 56);
+
+      const defs=svg.append('defs');
+      const gradId='legend-grad-'+Math.random().toString(36).slice(2,8);
+      const grad=defs.append('linearGradient').attr('id',gradId).attr('x1','0%').attr('x2','100%');
+
+      const steps=140;
+      for(let i=0;i<=steps;i++){
+        const t=i/steps;
+        const v=-CAP + t*(2*CAP);
+        grad.append('stop').attr('offset',(t*100)+'%').attr('stop-color', color(v));
+      }
+
+      svg.append('rect').attr('x',0).attr('y',6).attr('width',legendWidth).attr('height',legendHeight)
+        .attr('fill',`url(#${gradId})`).attr('stroke','#cfcfda').attr('rx',3).attr('ry',3);
+
+      svg.append('text').attr('x',0).attr('y',legendHeight+22).attr('fill','#333').attr('font-size',12).text('-$'+d3.format(',')(CAP));
+      svg.append('text').attr('x',legendWidth/2).attr('y',legendHeight+22).attr('fill','#333').attr('font-size',12).attr('text-anchor','middle').text('$0');
+      svg.append('text').attr('x',legendWidth).attr('y',legendHeight+22).attr('fill','#333').attr('font-size',12).attr('text-anchor','end').text('+$'+d3.format(',')(CAP));
+      svg.append('text').attr('x',legendWidth/2).attr('y',legendHeight+38).attr('fill','#444').attr('font-size',12).attr('text-anchor','middle')
+        .text('Green = Individual less expensive. Purple = Small Group less expensive.');
+    }
+
+    function render(){
+      if(!ROWS.length) return;
+
+      const width=mapDiv.clientWidth;
+      const height=mapDiv.clientHeight;
+      mapDiv.innerHTML='';
+
+      const controls=document.createElement('div');
+      controls.className='zoom-ui';
+      controls.innerHTML=`
+        <button data-zoom="in" aria-label="Zoom in">+</button>
+        <button data-zoom="out" aria-label="Zoom out">−</button>
+        <button data-zoom="reset" aria-label="Reset view">⤾</button>
+      `;
+      mapDiv.appendChild(controls);
+
+      const svg=d3.select(mapDiv).append('svg')
+        .attr('viewBox',`0 0 ${width} ${height}`)
+        .attr('preserveAspectRatio','xMidYMid meet')
+        .style('touch-action','none');
+
+      const gMap=svg.append('g');
+
+      // group-level fade-in
+      gMap
+        .style('opacity', 0)
+        .transition()
+        .duration(400)
+        .ease(d3.easeCubicInOut)
+        .style('opacity', 1);
+
+      const level=selMetal.value;
+      const age=+selAge.value;
+      const geo=selGeo.value;
+      const year=+selYear.value;
+
+      document.getElementById('ichra-level-title').textContent=level.charAt(0).toUpperCase()+level.slice(1);
+      document.getElementById('ichra-age-title').textContent=age;
+      document.getElementById('ichra-geo-title').textContent=geo==='county'?'County':'State';
+      document.getElementById('ichra-year-title').textContent=2000+year;
+
+      const url = geo==='county'
+        ? 'https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json'
+        : 'https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json';
+
+      d3.json(url).then(us=>{
+        let features, mesh;
+        if(geo==='county'){
+          features=topojson.feature(us, us.objects.counties).features;
+          mesh=topojson.mesh(us, us.objects.states, (a,b)=>a!==b);
+        } else {
+          features=topojson.feature(us, us.objects.states).features;
+        }
+
+        const projection=d3.geoAlbersUsa().fitSize([width, height-70], {type:'FeatureCollection', features});
+        const path=d3.geoPath(projection);
+
+        let values;
+        if(geo==='county'){
+          values=ROWS.filter(r=>r.lvl===level && r.age===age && r.year===year).map(r=>r.d);
+        } else {
+          values=aggregateStates(level, age, year).map(d=>d.d);
+        }
+
+        const CAP=percentileCap(values, 0.95);
+        const colorFunc=(v)=>colorWithCap(CAP)(v);
+
+        if(geo==='county'){
+          const byFips=new Map(ROWS.filter(r=>r.lvl===level && r.age===age && r.year===year).map(r=>[r.f, r]));
+
+          const counties = gMap.selectAll('path.county')
+            .data(features)
+            .join('path')
+            .attr('class','county')
+            .attr('d', path)
+            .attr('stroke', '#fff')          // keep original stroke
+            .attr('stroke-width', 0.6)       // keep original width
+            .style('opacity', 0);            // start transparent
+
+          counties
+            .transition()
+            .duration(600)
+            .ease(d3.easeCubicInOut)
+            .style('opacity', 1)
+            .attr('fill', d => {
+              const rec = byFips.get(String(d.id).padStart(5,'0'));
+              return rec && isFinite(rec.d) ? colorFunc(rec.d) : '#ececf2';
+            });
+
+          gMap.append('path')
+            .datum(mesh)
+            .attr('fill','none')
+            .attr('stroke','#444')
+            .attr('stroke-width',0.9)
+            .attr('d',path);
+
+          counties
+            .on('mousemove',(event,d)=>{
+              const rec=byFips.get(String(d.id).padStart(5,'0'));
+              if(!rec) return;
+              const rect=mapDiv.getBoundingClientRect();
+              tip.style.display='block';
+              tip.style.left=(event.clientX-rect.left+14)+'px';
+              tip.style.top=(event.clientY-rect.top+14)+'px';
+              tip.innerHTML=`<div><strong>${rec.n}, ${rec.st}</strong></div>
+                             <div>Diff (Ind − Small): <strong>${fmtDollars(rec.d)}</strong></div>
+                             <div>Individual: ${fmtDollars(rec.i)} &nbsp; Small Group: ${fmtDollars(rec.s)}</div>`;
+            })
+            .on('mouseleave', ()=>tip.style.display='none');
+
+        } else {
+          const stAggArr=aggregateStates(level, age, year);
+          const stAgg=new Map(stAggArr.map(o=>[o.st, o.d]));
+
+          const states = gMap.selectAll('path.state')
+            .data(features)
+            .join('path')
+            .attr('class','state')
+            .attr('d', path)
+            .attr('stroke', '#fff')          // keep original
+            .attr('stroke-width', 0.9)       // keep original width
+            .style('opacity', 0);
+
+          states
+            .transition()
+            .duration(600)
+            .ease(d3.easeCubicInOut)
+            .style('opacity', 1)
+            .attr('fill', d => {
+              const st = FIPS_TO_USPS[String(d.id).padStart(2,'0')];
+              const val = st ? stAgg.get(st) : null;
+              return val != null && isFinite(val) ? colorFunc(val) : '#ececf2';
+            });
+
+          states
+            .attr('stroke','#fff')
+            .attr('stroke-width',0.9)
+            .on('mousemove',(event,d)=>{
+              const st=FIPS_TO_USPS[String(d.id).padStart(2,'0')]||'';
+              const val=stAgg.get(st);
+              const rect=mapDiv.getBoundingClientRect();
+              tip.style.display='block';
+              tip.style.left=(event.clientX-rect.left+14)+'px';
+              tip.style.top=(event.clientY-rect.top+14)+'px';
+              tip.innerHTML=`<div><strong>${st}</strong></div>
+                             <div>Avg Diff (Ind − Small): <strong>${val!=null?fmtDollars(val):'N/A'}</strong></div>`;
+            })
+            .on('mouseleave', ()=>tip.style.display='none');
+        }
+
+        drawLegendExternal(width, CAP, colorFunc);
+
+        const zoom=d3.zoom().scaleExtent([1,8]).on('zoom',ev=>{ gMap.attr('transform', ev.transform); });
+        svg.call(zoom);
+
+        const zin=mapDiv.querySelector('[data-zoom="in"]');
+        const zout=mapDiv.querySelector('[data-zoom="out"]');
+        const zrst=mapDiv.querySelector('[data-zoom="reset"]');
+        zin.addEventListener('click', ()=> svg.transition().duration(200).call(zoom.scaleBy, 1.25));
+        zout.addEventListener('click', ()=> svg.transition().duration(200).call(zoom.scaleBy, 0.8));
+        zrst.addEventListener('click', ()=> svg.transition().duration(200).call(zoom.transform, d3.zoomIdentity));
+      });
+    }
+
+    d3.json('https://ideonapi.com/wp-content/uploads/json-data/county_lowest_premiums_all_14-12-2025.json')
+      .then(data=>{
+        ROWS = Array.isArray(data) ? data : [];
+        render();
+      })
+      .catch(err=>{
+        console.error('Failed to load map-1-data.json', err);
+        mapDiv.innerHTML='<div style="padding:12px;color:#b00;">Failed to load data (map-1-data.json).</div>';
+      });
+
+    window.addEventListener('resize', render);
+    selYear.addEventListener('change', function () {
+      if (this.value === '26') {
+        console.log("Year 2026 selected!");
+        const hsBtn = document.querySelector('.hs-cta-trigger-button-199434049104');
+        if (hsBtn) {
+          hsBtn.click();
+        } else {
+          console.warn("HubSpot CTA button not found.");
+        }
+      }
+    });
+    selYear.addEventListener('change', render);
+    selAge.addEventListener('change', render);
+    selMetal.addEventListener('change', render);
+    selGeo.addEventListener('change', render);
+  
